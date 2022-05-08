@@ -9,11 +9,11 @@ import GGame from './ggame.ts'
 const Game = (props) => {
   return (<>
    <Background/> 
-   <For each={props.game.waypoints()}>{ waypoint =>
-     <Waypoint waypoint={waypoint}/>
-   }</For>
    <Player player={props.game.player}/>
    <Cursor cursor={props.game.cursor}/>
+   <HasPosition x={props.game.enemy.pos.x} y={props.game.enemy.pos.y}>
+    <Rectangle color={red} w={8} h={8}/>
+    </HasPosition>
    </>)
 }
 

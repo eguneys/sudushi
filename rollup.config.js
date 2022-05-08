@@ -21,7 +21,7 @@ export default args => {
       name: 'Space',
       dir: 'dist',
       ...(prod ? {
-        entryFileNames: '[name].min.js',
+        entryFileNames: 'main.min.js',
         plugins: [terser()]
       } : {
         sourcemap: true

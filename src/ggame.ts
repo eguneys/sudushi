@@ -16,48 +16,70 @@ export function point_xy(p: Point) {
 
 export default class GGame {
 
-  _player: Player
-  cursor: Cursor
-
-  waypoints: Memo<Array<Waypoint>>
-
-  get player() {
-    return this._player
-  }
-
   constructor() {
 
     this.cursor = make_cursor()
-    this._player = make_player()
-
-    let waypoints = createSignal([], { equals: false })
-
-    this.waypoints = createMemo(mapArray(() => read(waypoints), (_) => make_waypoint(_)))
-
-    let { player, cursor } = this
-    createEffect(on([() => cursor.click.x, () => cursor.click.y], ([x, y]) => {
-      if (x === 0 && y === 0) { return }
-      write(waypoints, _ => _.push(point(x, y)))
-    }))
-
-    /*
-    createEffect(on([() => cursor.rclick.x, () => cursor.rclick.y], ([x, y]) => {
-      write(waypoints, _ => _.splice(-1))
-    }))
-   */
-
-    createEffect(() => {
-      let _waypoints = this.waypoints()
-      if (_waypoints.length > 0) {
-        player.target.x = _waypoints[0].pos.x
-        player.target.y = _waypoints[0].pos.y
-      } 
-    })
-
+    this.player = make_player()
+    this.enemy = make_enemy(this)
   }
 
 }
 
+function make_elapsed() {
+  let [{update}] = useApp()
+
+  return createMemo((prev) => {
+    let [dt, dt0] = update()
+    return prev + dt
+  }, 0)
+}
+
+function make_interval(t: number) {
+  
+  let _ = createMemo(on(make_elapsed(), (e, e0) =>
+    Math.floor(e0 / t) !== Math.floor(e / t)))
+
+  return createMemo((prev) => _() ? prev : prev + 1, 0)
+}
+
+function make_run(t: number) {
+  let _ = on(make_elapsed(), e => e <= t)
+
+  return createMemo((prev) => !_() ? prev : prev + 1, 0)
+}
+
+
+function make_enemy(game: GGame) {
+
+  let pos = make_position(0, 0)
+
+  let rx = make_rigid(0, 1000, 0.92),
+    ry = make_rigid(0, 1000, 0.92)
+
+  let on_half = make_interval(ticks.seconds)
+
+
+  createEffect(() => {
+    console.log(game.cursor.pos.m_vs())
+  })
+
+
+  createEffect(() => {
+    pos.x = rx.x
+    rx.force = 0
+    ry.force = 0
+  })
+
+  createEffect(on(on_half, () => {
+    createEffect(on(make_run(ticks.sixth), () => {
+      rx.force = 0.5 
+    }))
+  }))
+
+  return {
+    pos
+  }
+}
 
 function make_waypoint(point: Point) {
   let pos = make_position(...point_xy(point))
@@ -112,25 +134,6 @@ const Ease = {
 }
 
 
-
-function tween(setter: (_: number) => void, a: number, b: number, duration: number, easing: Easing = Ease.quad_in_out) {
-
-  let [{update}] = useApp()
-
-  let elapsed = createSignal(0)
-
-  createEffect(on(update, ([dt, dt0]) => owrite(elapsed, _ => _ += dt)))
-
-  let m_i_ = createMemo(() => Math.min(1, read(elapsed) / duration))
-  let m_i = createMemo(() => easing(m_i_()))
-
-  let m_value = createMemo(() => a * (1 - m_i()) + b * m_i())
-
-  createEffect(() => {
-    setter(m_value())
-  })
-}
-
 function make_player() {
 
 
@@ -161,7 +164,9 @@ function make_position(x, y) {
   let _x = createSignal(x, { equals: false })
   let _y = createSignal(y, { equals: false })
 
-  let m_vs = createMemo(() => Vec2.make(read(_x), read(_y)))
+  let m_p = createMemo(() => point(read(_x), read(_y)))
+
+  let m_vs = createMemo(() => Vec2.make(...point_xy(m_p())))
 
   return {
     m_vs,
@@ -171,3 +176,54 @@ function make_position(x, y) {
     set y(v: number) { owrite(_y, v) },
   }
 }
+
+
+function make_rigid(x, mass, air_friction) {
+  let [{update}] = useApp()
+
+  let _force = createSignal(0)
+
+  let m_a = createMemo(() => read(_force) / mass)
+
+
+  let m_v0_x
+
+  let m_v_x = createMemo(on(update, ([dt, dt0]) => {
+    return (m_v0_x?.() || 0) * air_friction * dt / dt0 + m_a() * dt * (dt + dt0) / 2
+  }))
+
+  let _x = createMemo((prev) => prev + m_v_x(), x)
+
+  let m_x0 = createMemo(on(_x, (_, x0) => {
+    return x0 || x
+  }))
+
+  m_v0_x = createMemo(() => _x() - m_x0())
+
+  return {
+    get x() { return _x() },
+    get vx() { return m_v_x() },
+    set force(v: number) { owrite(_force, v) }
+  }
+}
+
+
+function tween(setter: (_: number) => void, a: number, b: number, duration: number, easing: Easing = Ease.quad_in_out) {
+
+  let [{update}] = useApp()
+
+  let elapsed = createSignal(0)
+
+  createEffect(on(update, ([dt, dt0]) => owrite(elapsed, _ => _ += dt)))
+
+  let m_i_ = createMemo(() => Math.min(1, read(elapsed) / duration))
+  let m_i = createMemo(() => easing(m_i_()))
+
+  let m_value = createMemo(() => a * (1 - m_i()) + b * m_i())
+
+  createEffect(() => {
+    setter(m_value())
+  })
+}
+
+

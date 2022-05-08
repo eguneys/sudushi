@@ -1,0 +1,40 @@
+<html>
+  <head>
+    <link rel='icon' href='/'>
+    <style>
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #444;
+  image-rendering: pixelated;
+}
+
+#app {
+  display: flex;
+  justify-content: center;
+}
+
+#app canvas {
+  width: min(100vw, calc(100vh * 16/9));
+  cursor: none;
+}
+
+.controls {
+  display: flex;
+}
+
+.controls button {
+  padding: 0.5em;
+}
+   </style>
+  </head>
+  <body>
+    <div id='app'></div>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+              Space(document.getElementById('app'), {})
+      })
+    </script>
+  </body>
+</html>

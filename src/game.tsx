@@ -9,14 +9,19 @@ import GGame from './ggame.ts'
 const Game = (props) => {
   return (<>
    <Background/> 
+   
    <Player player={props.game.player}/>
    <Cursor cursor={props.game.cursor}/>
    <HasPosition x={props.game.enemy.pos.x} y={props.game.enemy.pos.y}>
     <Rectangle color={red} w={8} h={8}/>
     </HasPosition>
+
+    <Rectangle color={red} w={30} h={9}/>
+    <HasPosition x={1} y={1}>
+      <Letters letters={props.game.level.m_level()}/>
+    </HasPosition>
    </>)
 }
-
 const Waypoint = props => {
   return (<HasPosition x={props.waypoint.pos.x} y={props.waypoint.pos.y}>
       <Rectangle lum={0} w={2} h={2}/> 
@@ -40,6 +45,18 @@ const Background = () => {
   return (<Rectangle x={0} y={0} w={320} h={180}/>)
 }
 
+const Letters = props => {
+  return (<>
+    <For each={props.letters}>{(letter, i) =>
+      <HasPosition x={i()*4} y={0}>
+        <Anim tint={letter.tint} qs={[16 + letter.frame * 8, 16, 8, 7]}/>
+      </HasPosition>
+    }</For>
+      </>)
+}
+
+
+
 const Rectangle = (props) => {
   return (<Anim qs={[0 + (props.lum ?? 2) * 2, 0 + (props.color ?? 0) * 2, 1, 1]} size={Vec2.make(props.w, props.h)} x={props.x} y={props.y}/>)
 }
@@ -59,6 +76,7 @@ export const Anim = (props) => {
   return (<transform
           quad={Quad.make(image(), ...props.qs)}
           size={props.size || Vec2.make(props.qs[2], props.qs[3])}
+          tint={props.tint}
           x={props.x}
           y={props.y}
           />)

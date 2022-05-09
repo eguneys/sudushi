@@ -1,5 +1,5 @@
 import { ticks } from './shared'
-import { untrack, mapArray, createMemo, createSignal, createEffect, on } from 'soli2d-js'
+import { batch, onCleanup, untrack, mapArray, createMemo, createSignal, createEffect, on } from 'soli2d-js'
 import { Vec2 } from 'soli2d-js/web'
 import { read, write, owrite } from './play'
 import { useApp } from './app'
@@ -14,6 +14,13 @@ export function point_xy(p: Point) {
   return p.split(' ').map(_ => parseInt(_))
 }
 
+const letter_frames = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','!','0','1','2','3','4','5','6','7','8','9', ',', '.']
+
+export function format_letters(str: string) {
+  return str.split('').map(_ => letter_frames.indexOf(_))
+}
+
+
 export default class GGame {
 
   constructor() {
@@ -21,72 +28,84 @@ export default class GGame {
     this.cursor = make_cursor()
     this.player = make_player()
     this.enemy = make_enemy(this)
+
+    this.level = make_level(this, 0)
+
+    setInterval(() => {
+      this.level.up()
+    }, 500)
+    setInterval(() => {
+      this.level.reset()
+    }, 5000)
   }
 
 }
 
-function make_elapsed() {
-  let [{update}] = useApp()
+const max_level = 10
+function format_level(level: number) {
+  let filled = [...Array(level).keys()].map(_ => '!').join('')
+  let unfilled = [...Array(max_level - level).keys()].map(_ => '.').join('')
 
-  return createMemo((prev) => {
-    let [dt, dt0] = update()
-    return prev + dt
-  }, 0)
+  return unfilled + filled
 }
 
-function make_interval(t: number) {
-  
-  let _ = createMemo(on(make_elapsed(), (e, e0) =>
-    Math.floor(e0 / t) !== Math.floor(e / t)))
+function make_level(game: GGame, level: number) {
+  let _level = createSignal(level)
 
-  return createMemo((prev) => _() ? prev : prev + 1, 0)
-}
+  let m_level = make_letters(createMemo(() =>
+                           'level ' + format_level(read(_level))))
 
-function make_run(t: number) {
-  let _ = on(make_elapsed(), e => e <= t)
-
-  return createMemo((prev) => !_() ? prev : prev + 1, 0)
+  return {
+    get level_digit() { return read(_level) },
+    up() {
+      owrite(_level, _ => Math.min(max_level, _+1))
+    },
+    reset() {
+      owrite(_level, 0)
+    },
+    m_level
+  }
 }
 
 
 function make_enemy(game: GGame) {
 
-  let pos = make_position(0, 0)
+  let [{update}] = useApp()
+  let pos = make_position(100, 100)
 
-  let rx = make_rigid(0, 1000, 0.92),
-    ry = make_rigid(0, 1000, 0.92)
+  let rx = make_rigid(100, 1000, 0.92),
+    ry = make_rigid(100, 1000, 0.92)
 
-  let on_half = make_interval(ticks.seconds)
+  let m_dir = createMemo(() => game.cursor.pos.m_vs().sub(pos.m_vs()).normalize)
+  let m_f_dir = createMemo(() => m_dir().scale(0.5))
 
-
-  createEffect(() => {
-    console.log(game.cursor.pos.m_vs())
-  })
-
-
-  createEffect(() => {
-    pos.x = rx.x
-    rx.force = 0
-    ry.force = 0
-  })
-
-  createEffect(on(on_half, () => {
-    createEffect(on(make_run(ticks.sixth), () => {
-      rx.force = 0.5 
+  createEffect(on(make_interval(ticks.seconds), () => {
+    createEffect(on(make_run(ticks.sixth), (_) => {
+      if (_ === -1) {
+        batch(() => {
+          rx.force = 0
+          ry.force = 0
+        })
+      } else {
+        batch(() => {
+          rx.force = m_f_dir().x
+          ry.force = m_f_dir().y
+        })
+      }
     }))
   }))
 
+  createEffect(on(update, () => {
+    pos.x = rx.x
+    pos.y = ry.x
+  }))
+
+
   return {
     pos
   }
 }
 
-function make_waypoint(point: Point) {
-  let pos = make_position(...point_xy(point))
-  return {
-    pos
-  }
-}
 
 function make_cursor() {
 
@@ -125,20 +144,11 @@ function make_cursor() {
   }
 }
 
-const Ease = {
-  linear: t => t,
-  quad_in: t => t * t,
-  quad_out: t => -t * (t - 2),
-  quad_in_out: t => t<.5 ? 2*t*t : -1+(4-2*t)*t,
-  cubit_in: t => t * t * t
-}
-
-
 function make_player() {
 
 
-  let pos = make_position(0, 0)
-  let target = make_position(0, 0)
+  let pos = make_position(100, 100)
+  let target = make_position(100, 100)
 
   createEffect(on([() => target.x, () => target.y], ([tx, ty]) => {
     tween((v: number) => pos.x = v, pos.x, tx, ticks.seconds)
@@ -189,26 +199,79 @@ function make_rigid(x, mass, air_friction) {
   let m_v0_x
 
   let m_v_x = createMemo(on(update, ([dt, dt0]) => {
-    return (m_v0_x?.() || 0) * air_friction * dt / dt0 + m_a() * dt * (dt + dt0) / 2
+    return (m_v0_x?.() ?? 0) * air_friction * dt / dt0 + m_a() * dt * (dt + dt0) / 2
   }))
 
   let _x = createMemo((prev) => prev + m_v_x(), x)
 
-  let m_x0 = createMemo(on(_x, (_, x0) => {
-    return x0 || x
+  m_v0_x = createMemo(on(_x, (_x, x0) => {
+    return _x - (x0 ?? x)
   }))
-
-  m_v0_x = createMemo(() => _x() - m_x0())
 
   return {
     get x() { return _x() },
     get vx() { return m_v_x() },
-    set force(v: number) { owrite(_force, v) }
+    set force(v: number) { owrite(_force, v) },
+    get debug() { return [read(_force), m_v0_x()] }
+  }
+}
+
+function make_letters(accessor: string) {
+  return createMemo(mapArray(() => format_letters(accessor()), make_letter))
+}
+
+function make_letter(frame: number) {
+  let m_tint = make_flip(ticks.thirds, 0xbc3e5b, 0xffffff)
+
+  return {
+    frame,
+    get tint() { return m_tint() }
   }
 }
 
 
-function tween(setter: (_: number) => void, a: number, b: number, duration: number, easing: Easing = Ease.quad_in_out) {
+function make_elapsed() {
+  let [{update}] = useApp()
+
+  return createMemo((prev) => {
+    let [dt, dt0] = update()
+    return prev + dt
+  }, 0)
+}
+
+function make_interval(t: number) {
+  
+  let _ = createMemo(on(make_elapsed(), (e, e0) =>
+    Math.floor(e0 / t) !== Math.floor(e / t)))
+
+  return createMemo((prev) => _() ? prev : prev + 1, 0)
+}
+
+export function make_run(t: number) {
+  let _ = on(make_elapsed(), e => e <= t)
+
+  return createMemo(on(_, 
+                       (_, _0, prev) => 
+                       _ !== _0 ? (_ ? prev + 1 : -1) : 
+                         !_ ? prev : prev + 1),
+                       0)
+}
+
+export function make_flip<A>(t: number, a: A = true, b: A = false) {
+  return createMemo(on(make_elapsed(), e => e <= t ? a : b))
+}
+
+type Ease = (t: number) => number
+
+const Ease = {
+  linear: t => t,
+  quad_in: t => t * t,
+  quad_out: t => -t * (t - 2),
+  quad_in_out: t => t<.5 ? 2*t*t : -1+(4-2*t)*t,
+  cubit_in: t => t * t * t
+}
+
+function tween(setter: (_: number) => void, a: number, b: number, duration: number, easing: Ease = Ease.quad_in_out) {
 
   let [{update}] = useApp()
 

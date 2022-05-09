@@ -4,14 +4,22 @@ import { Vec2 } from 'soli2d-js/web'
 import { read, write, owrite } from './play'
 import { useApp } from './app'
 
+const id_gen = (() => { let id = 0; return () => ++id })()
+
 export type Point = string
 
 export function point(x: number, y: number) {
-  return `${x} ${y}`
+  return `${x} ${y} ${id_gen()}`
 }
 
 export function point_xy(p: Point) {
-  return p.split(' ').map(_ => parseInt(_))
+  return p.split(' ').map(_ => parseFloat(_))
+}
+
+export const point_zero = point(0, 0)
+
+const pos_hit = (a: Vec2, b: Vec2) => {
+  return a.distance(b) < 4
 }
 
 const letter_frames = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','!','0','1','2','3','4','5','6','7','8','9', ',', '.']
@@ -27,31 +35,59 @@ export default class GGame {
     return this._enemies.values
   }
 
+  get projectiles() {
+    return this._projectiles.values
+  }
+
   constructor() {
 
     this.cursor = make_cursor()
     this.player = make_player(this)
-    this.enemy = make_enemy(this, point(50, 50))
-    this._enemies = make_array([], _ => make_enemy(this, _))
+    this._enemies = make_array([], _ => make_enemy((_) => this._enemies.remove(_), this, _))
+
+    this._projectiles = make_array([], _ => make_projectile(() => this._projectiles.remove(_), player.pos.point, _))
 
     this.level = make_level(this, 0)
 
     let { player, cursor } = this
 
-    createEffect(() => {
-      player.target.x = cursor.pos.x
-      player.target.y = cursor.pos.y
+    const fire = (dir: Point) => {
+      this._projectiles.push(dir)
+    }
+
+    createMemo(() => {
+      this.projectiles.map(proj => {
+        this.enemies.forEach(enemy => {
+
+          if (pos_hit(enemy.pos.m_vs(), proj.pos.m_vs())) {
+            proj.hit(enemy)
+            enemy.take_hit(proj)
+          }
+        })
+      })
     })
+
+    setInterval(() => {
+      for (let i = 0; i < 5; i++) {
+        setTimeout(() => {
+          let off = i/5 * Math.PI * 0.05
+          let res = player.direction.add_angle(off + Math.PI + Math.random() * Math.PI * 0.2)
+          fire(point(res.x, res.y))
+        }, i / 5 * 100 + Math.random() * 100)
+      }
+    }, 200)
+
+    setInterval(() => {
+      for (let i = 0; i < 10; i++) {
+        let off = i/10 * Math.PI * 0.1
+        let res = player.direction.add_angle(off)
+        fire(point(res.x, res.y))
+      }
+    }, 800)
 
     setInterval(() => {
       this._enemies.push(point(Math.random() * 320, Math.random() * 180))
     }, 940)
-
-    setInterval(() => {
-      if (Math.random() < 0.08) {
-        this._enemies.dequeue()
-      }
-    }, 100)
 
     setInterval(() => {
       this.level.up()
@@ -78,11 +114,23 @@ function make_array<A, B>(arr: Array<A>, map: (_: A) => B) {
 
   return {
     get values() { return _() },
+    get head() { return _()[0] },
     push(a: A) {
       write(_arr, _ => _.push(a))
     },
+    enqueue(a: A) {
+      write(_arr, _ => _.unshift(a))
+    },
     dequeue() {
-      write(_arr, _ => _.shift())
+      let res
+      write(_arr, _ => res = _.shift())
+      return res
+    },
+    remove(a: A) {
+      write(_arr, _ => _.splice(_.indexOf(a), 1))
+    },
+    clear() {
+      owrite(_arr, [])
     }
   }
 }
@@ -106,7 +154,7 @@ function make_level(game: GGame, level: number) {
 }
 
 
-function make_enemy(game: GGame, point: Point) {
+function make_enemy(dispose: OnHandler, game: GGame, point: Point) {
 
   let [{update}] = useApp()
   let pos = make_position(...point_xy(point))
@@ -142,7 +190,10 @@ function make_enemy(game: GGame, point: Point) {
 
   return {
     pos,
-    get tint() { return m_tint() }
+    get tint() { return m_tint() },
+    take_hit() {
+      dispose()
+    }
   }
 }
 
@@ -160,19 +211,25 @@ function make_cursor() {
     let { hover, lclick, rclick: _rclick } = mouse()
 
     if (hover) {
-      pos.x = hover[0]
-      pos.y = hover[1]
+      batch(() => {
+        pos.x = hover[0]
+        pos.y = hover[1]
+      })
     }
 
     if (lclick) {
-      click.x = lclick[0]
-      click.y = lclick[1]
+      batch(() => {
+        click.x = lclick[0]
+        click.y = lclick[1]
+      })
     }
 
 
     if (_rclick) {
-      rclick.x = _rclick[0]
-      rclick.y = _rclick[1]
+      batch(() => {
+        rclick.x = _rclick[0]
+        rclick.y = _rclick[1]
+      })
     }
   }))
 
@@ -184,8 +241,44 @@ function make_cursor() {
   }
 }
 
-function make_player(game: GGame) {
+type OnHandler = () => void
 
+function make_projectile(dispose: OnHandler, point: Point, _dir: Point) {
+
+  let pos = make_position(...point_xy(point))
+
+  let rx = make_rigid(pos.x, 1000, 0.92),
+    ry = make_rigid(pos.y, 1000, 0.92)
+
+  let t_force_decay = make_tween(1, 0, ticks.seconds - ticks.thirds)
+
+  let dir = Vec2.make(...point_xy(_dir))
+
+  createEffect(on(make_run(ticks.seconds), (_) => {
+    if (_ === -1) {
+      rx.force = 0
+      ry.force = 0
+      dispose()
+    } else {
+      rx.force = dir.x * t_force_decay.value * 2
+      ry.force = dir.y * t_force_decay.value * 2
+    }
+  }))
+
+  createEffect(() => {
+    pos.x = rx.x
+    pos.y = ry.x
+  })
+
+
+
+  return {
+    pos,
+    hit() {}
+  }
+}
+
+function make_player(game: GGame) {
 
   let pos = make_position(100, 100)
   let target = make_position(100, 100)
@@ -194,10 +287,27 @@ function make_player(game: GGame) {
     ry = make_rigid(100, 1000, 0.92)
 
 
-  let m_dir = createMemo(() => game.cursor.pos.m_vs().sub(pos.m_vs()).normalize)
 
-  createEffect(on([() => target.x, () => target.y], ([tx, ty]) => {
-    createEffect(on(make_run(ticks.sixth), (_) => {
+  let waypoints = make_array([], make_waypoint)
+
+  let f_waypoint = createMemo(() => waypoints.head)
+
+  createEffect(() => {
+    let w = f_waypoint()
+    if (w) {
+      target.x = w.pos.x
+      target.y = w.pos.y
+    }
+  })
+
+  let m_dir = createMemo(() => target.m_vs().sub(pos.m_vs()).normalize)
+
+  let m_distance = createMemo(() => pos.m_vs().distance(target.m_vs()))
+  let m_reached = createMemo(() => m_distance() < 8)
+
+  createEffect(on(m_reached, (v) => {
+    createEffect(on(make_interval(ticks.seconds), () => {
+    createEffect(on(make_run(ticks.half), (_) => {
       if (_ === -1) {
         rx.force = 0
         ry.force = 0
@@ -206,27 +316,47 @@ function make_player(game: GGame) {
         ry.force = m_dir().y * 0.5
       }
     }))
+    }))
   }))
 
 
-  let [{update}] = useApp()
-  createEffect(on(update, () => {
+  createEffect(() => {
     pos.x = rx.x
     pos.y = ry.x
+  })
+
+  
+
+  createEffect(() => {
+    let p = point(...game.cursor.click.m_vs().vs)
+    if (p !== point_zero) {
+      waypoints.enqueue(p)
+    }
+  })
+
+  createEffect(on(game.cursor.rclick.m_vs, () => {
+    waypoints.clear()
   }))
 
-  let m_distance = createMemo(() => pos.m_vs().distance(target.m_vs()))
-
-  let m_reached = createMemo(() => m_distance() < 8)
-
   return {
+    get direction() { return m_dir() },
+    get projectiles() { return guns.values },
     m_distance,
     m_reached,
     pos,
-    target
+    target,
+    get waypoints() { return waypoints.values }
   }
 }
 
+function make_waypoint(point: Point) {
+
+  let pos = make_position(...point_xy(point))
+
+  return {
+    pos
+  }
+}
 
 function make_position(x, y) {
   let _x = createSignal(x, { equals: false })
@@ -237,6 +367,7 @@ function make_position(x, y) {
   let m_vs = createMemo(() => Vec2.make(...point_xy(m_p())))
 
   return {
+    get point() { return m_p() },
     m_vs,
     get x() { return read(_x) },
     set x(v: number) { owrite(_x, v) },
@@ -287,7 +418,6 @@ function make_letter(frame: number) {
   }
 }
 
-
 function make_elapsed() {
   let [{update}] = useApp()
 
@@ -327,6 +457,22 @@ const Ease = {
   quad_out: t => -t * (t - 2),
   quad_in_out: t => t<.5 ? 2*t*t : -1+(4-2*t)*t,
   cubit_in: t => t * t * t
+}
+
+function make_tween(a: number, b: number, duration: number, easing: Ease = Ease.quad_in_out) {
+  let elapsed = make_elapsed()
+
+  let m_i_ = createMemo(() => Math.min(1, elapsed() / duration))
+  let m_i = createMemo(() => easing(m_i_()))
+  let m_value = createMemo(() => a * (1 - m_i()) + b * m_i())
+
+
+  return {
+    get i() { return m_i() },
+    get value() { return m_value() },
+    m_i,
+    m_value
+  }
 }
 
 function tween(setter: (_: number) => void, a: number, b: number, duration: number, easing: Ease = Ease.quad_in_out) {

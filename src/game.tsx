@@ -1,4 +1,4 @@
-import { ticks, red, blue } from './shared'
+import { ticks, sand, red, blue, dark } from './shared'
 import { AppProvider, useApp } from './app'
 import { Quad, Vec2 } from 'soli2d-js/web'
 import { onCleanup, onMount, Show, For, on, createEffect, createContext, useContext, createSignal } from 'soli2d-js'
@@ -23,6 +23,18 @@ const Game = (props) => {
     <HasPosition x={1} y={1}>
       <Letters letters={props.game.level.m_level()}/>
     </HasPosition>
+
+    <For each={props.game.player.waypoints}>{ waypoint =>
+      <HasPosition x={waypoint.pos.x} y={waypoint.pos.y}>
+        <Rectangle lum={0} color={dark} w={2} h={2}/>
+      </HasPosition>    
+    }</For>
+
+    <For each={props.game.projectiles}>{ projectile =>
+      <HasPosition x={projectile.pos.x} y={projectile.pos.y}>
+        <Rectangle lum={2} color={sand} w={2} h={2}/>
+      </HasPosition>    
+    }</For>
    </>)
 }
 const Waypoint = props => {

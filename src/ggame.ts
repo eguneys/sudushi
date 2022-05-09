@@ -1,4 +1,4 @@
-import { ticks } from './shared'
+import { ticks, red, dark } from './shared'
 import { batch, onCleanup, untrack, mapArray, createMemo, createSignal, createEffect, on } from 'soli2d-js'
 import { Vec2 } from 'soli2d-js/web'
 import { read, write, owrite } from './play'
@@ -23,13 +23,35 @@ export function format_letters(str: string) {
 
 export default class GGame {
 
+  get enemies() {
+    return this._enemies.values
+  }
+
   constructor() {
 
     this.cursor = make_cursor()
-    this.player = make_player()
-    this.enemy = make_enemy(this)
+    this.player = make_player(this)
+    this.enemy = make_enemy(this, point(50, 50))
+    this._enemies = make_array([], _ => make_enemy(this, _))
 
     this.level = make_level(this, 0)
+
+    let { player, cursor } = this
+
+    createEffect(() => {
+      player.target.x = cursor.pos.x
+      player.target.y = cursor.pos.y
+    })
+
+    setInterval(() => {
+      this._enemies.push(point(Math.random() * 320, Math.random() * 180))
+    }, 940)
+
+    setInterval(() => {
+      if (Math.random() < 0.08) {
+        this._enemies.dequeue()
+      }
+    }, 100)
 
     setInterval(() => {
       this.level.up()
@@ -47,6 +69,22 @@ function format_level(level: number) {
   let unfilled = [...Array(max_level - level).keys()].map(_ => '.').join('')
 
   return unfilled + filled
+}
+
+function make_array<A, B>(arr: Array<A>, map: (_: A) => B) {
+  let _arr = createSignal(arr, { equals: false })
+
+  let _ = createMemo(mapArray(_arr[0], map))
+
+  return {
+    get values() { return _() },
+    push(a: A) {
+      write(_arr, _ => _.push(a))
+    },
+    dequeue() {
+      write(_arr, _ => _.shift())
+    }
+  }
 }
 
 function make_level(game: GGame, level: number) {
@@ -68,16 +106,15 @@ function make_level(game: GGame, level: number) {
 }
 
 
-function make_enemy(game: GGame) {
+function make_enemy(game: GGame, point: Point) {
 
   let [{update}] = useApp()
-  let pos = make_position(100, 100)
+  let pos = make_position(...point_xy(point))
 
-  let rx = make_rigid(100, 1000, 0.92),
-    ry = make_rigid(100, 1000, 0.92)
+  let rx = make_rigid(point_xy(point)[0], 1000, 0.92),
+    ry = make_rigid(point_xy(point)[1], 1000, 0.92)
 
-  let m_dir = createMemo(() => game.cursor.pos.m_vs().sub(pos.m_vs()).normalize)
-  let m_f_dir = createMemo(() => m_dir().scale(0.5))
+  let m_dir = createMemo(() => game.player.pos.m_vs().sub(pos.m_vs()).normalize)
 
   createEffect(on(make_interval(ticks.seconds), () => {
     createEffect(on(make_run(ticks.sixth), (_) => {
@@ -88,8 +125,8 @@ function make_enemy(game: GGame) {
         })
       } else {
         batch(() => {
-          rx.force = m_f_dir().x
-          ry.force = m_f_dir().y
+          rx.force = m_dir().x * 0.5
+          ry.force = m_dir().y * 0.5
         })
       }
     }))
@@ -101,8 +138,11 @@ function make_enemy(game: GGame) {
   }))
 
 
+  let m_tint = make_flip(ticks.half, red, dark)
+
   return {
-    pos
+    pos,
+    get tint() { return m_tint() }
   }
 }
 
@@ -144,18 +184,36 @@ function make_cursor() {
   }
 }
 
-function make_player() {
+function make_player(game: GGame) {
 
 
   let pos = make_position(100, 100)
   let target = make_position(100, 100)
 
+  let rx = make_rigid(100, 1000, 0.92),
+    ry = make_rigid(100, 1000, 0.92)
+
+
+  let m_dir = createMemo(() => game.cursor.pos.m_vs().sub(pos.m_vs()).normalize)
+
   createEffect(on([() => target.x, () => target.y], ([tx, ty]) => {
-    tween((v: number) => pos.x = v, pos.x, tx, ticks.seconds)
-    tween((v: number) => pos.y = v, pos.y, ty, ticks.seconds)
+    createEffect(on(make_run(ticks.sixth), (_) => {
+      if (_ === -1) {
+        rx.force = 0
+        ry.force = 0
+      } else {
+        rx.force = m_dir().x * 0.5
+        ry.force = m_dir().y * 0.5
+      }
+    }))
   }))
 
 
+  let [{update}] = useApp()
+  createEffect(on(update, () => {
+    pos.x = rx.x
+    pos.y = ry.x
+  }))
 
   let m_distance = createMemo(() => pos.m_vs().distance(target.m_vs()))
 

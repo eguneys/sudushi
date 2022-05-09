@@ -12,9 +12,12 @@ const Game = (props) => {
    
    <Player player={props.game.player}/>
    <Cursor cursor={props.game.cursor}/>
-   <HasPosition x={props.game.enemy.pos.x} y={props.game.enemy.pos.y}>
-    <Rectangle color={red} w={8} h={8}/>
-    </HasPosition>
+   
+    <For each={props.game.enemies}>{ enemy =>
+      <HasPosition x={enemy.pos.x} y={enemy.pos.y}>
+        <Rectangle lum={1} color={enemy.tint} w={8} h={8}/>
+      </HasPosition>    
+    }</For>
 
     <Rectangle color={red} w={30} h={9}/>
     <HasPosition x={1} y={1}>

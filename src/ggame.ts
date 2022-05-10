@@ -19,7 +19,7 @@ export function point_xy(p: Point) {
 export const point_zero = point(0, 0)
 
 const pos_hit = (a: Vec2, b: Vec2) => {
-  return a.distance(b) < 4
+  return a.distance(b) < 8
 }
 
 const letter_frames = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','!','0','1','2','3','4','5','6','7','8','9', ',', '.']
@@ -45,7 +45,10 @@ export default class GGame {
     this.player = make_player(this)
     this._enemies = make_array([], _ => make_enemy((_) => this._enemies.remove(_), this, _))
 
-    this._projectiles = make_array([], _ => make_projectile(() => this._projectiles.remove(_), player.pos.point, _))
+    this._projectiles = make_array([],
+                                   _ => 
+    make_projectile(() => 
+                    this._projectiles.remove(_), point(...player.front.vs), _))
 
     this.level = make_level(this, 0)
     this.health = make_health(this, 8)
@@ -72,23 +75,16 @@ export default class GGame {
       })
     })
 
-    setInterval(() => {
-      for (let i = 0; i < 5; i++) {
-        setTimeout(() => {
-          let off = i/5 * Math.PI * 0.05
-          let res = player.direction.add_angle(off + Math.PI + Math.random() * Math.PI * 0.2)
-          fire(point(res.x, res.y))
-        }, i / 5 * 100 + Math.random() * 100)
-      }
-    }, 200)
-
+  let r = 0
     setInterval(() => {
       for (let i = 0; i < 10; i++) {
-        let off = i/10 * Math.PI * 0.1
-        let res = player.direction.add_angle(off)
+        let off = i/10 * Math.PI * 0.01
+        let res = player.direction.add_angle(off + Math.sin(r * 30) * Math.PI * 0.08)
+       // res = Vec2.from_angle(r * 3000)
+        r += Math.PI * 0.0003
         fire(point(res.x, res.y))
       }
-    }, 800)
+    }, 100)
 
     setInterval(() => {
       this._enemies.push(point(Math.random() * 320, Math.random() * 180))
@@ -211,14 +207,16 @@ function make_projectile(dispose: OnHandler, point: Point, _dir: Point) {
 
   let dir = Vec2.make(...point_xy(_dir))
 
+  let dampen = 0.8
+
   createEffect(on(make_run(ticks.seconds), (_) => {
     if (_ === -1) {
       rx.force = 0
       ry.force = 0
       dispose()
     } else {
-      rx.force = dir.x * t_force_decay.value * 2
-      ry.force = dir.y * t_force_decay.value * 2
+      rx.force = dir.x * t_force_decay.value * 2 * dampen
+      ry.force = dir.y * t_force_decay.value * 2 * dampen
     }
   }))
 
@@ -230,8 +228,20 @@ function make_projectile(dispose: OnHandler, point: Point, _dir: Point) {
 
 
   return {
+    get angle() { return dir.angle },
     pos,
     hit() {}
+  }
+}
+
+function make_counter_loop(n: number) {
+  let _ = createSignal(0)
+
+  return {
+    get value() { return read(_) },
+    increment() {
+      owrite(_, _ => (_ + 1) % n)
+    }
   }
 }
 
@@ -240,10 +250,12 @@ function make_player(game: GGame) {
   let pos = make_position(100, 100)
   let target = make_position(100, 100)
 
-  let rx = make_rigid(100, 1000, 0.92),
-    ry = make_rigid(100, 1000, 0.92)
+  let friction = 0.91
+  let rx = make_rigid(100, 1000, friction),
+    ry = make_rigid(100, 1000, friction)
 
 
+  let c_frame = make_counter_loop(7)
 
   let waypoints = make_array([], make_waypoint)
 
@@ -262,15 +274,18 @@ function make_player(game: GGame) {
   let m_distance = createMemo(() => pos.m_vs().distance(target.m_vs()))
   let m_reached = createMemo(() => m_distance() < 8)
 
+  let m_front = createMemo(() => pos.m_vs().add(m_dir().scale(10)))
+
   createEffect(on(m_reached, (v) => {
-    createEffect(on(make_interval(ticks.seconds), () => {
-    createEffect(on(make_run(ticks.half), (_) => {
+    createEffect(on(make_interval(ticks.five * 1.5), () => {
+    createEffect(on(make_run(ticks.three), (_) => {
       if (_ === -1) {
         rx.force = 0
         ry.force = 0
+        c_frame.increment()
       } else {
-        rx.force = m_dir().x * 0.5
-        ry.force = m_dir().y * 0.5
+        rx.force = m_dir().x * 0.5 * 2
+        ry.force = m_dir().y * 0.5 * 2
       }
     }))
     }))
@@ -296,7 +311,10 @@ function make_player(game: GGame) {
   }))
 
   return {
+    get front() { return m_front() },
+    get frame() { return c_frame.value },
     get direction() { return m_dir() },
+    get angle() { return m_dir().angle },
     get projectiles() { return guns.values },
     m_distance,
     m_reached,
@@ -371,6 +389,37 @@ function make_letter(frame: number) {
   }
 }
 
+function make_trigger() {
+  let _trigger = createSignal(false)
+
+  createEffect(() => {
+    if (read(_trigger)) {
+      owrite(_trigger, false)
+    }
+  })
+
+  return {
+    get on() { return read(_trigger) },
+    reset() { owrite(_trigger, true) }
+  }
+}
+
+function make_elapsed_r() {
+  let [{update}] = useApp()
+
+  let t_reset = make_trigger()
+
+  let m_value = createMemo((prev) => {
+    let [dt, dt0] = update()
+    return t_reset.on ? 0 : prev + dt
+  }, 0)
+
+  return {
+    get value() { return m_value() },
+    reset() { t_reset.reset() }
+  }
+}
+
 function make_elapsed() {
   let [{update}] = useApp()
 
@@ -412,38 +461,35 @@ const Ease = {
   cubit_in: t => t * t * t
 }
 
+export function make_loop(a: number, b: number, duration: number) {
+  let res = make_tween(a, b, duration)
+
+  createEffect(() => {
+    if (res.m_reached()) {
+      res.b = b
+    }
+  })
+  return res
+}
+
 function make_tween(a: number, b: number, duration: number, easing: Ease = Ease.quad_in_out) {
-  let elapsed = make_elapsed()
+  let _b = createSignal(b)
+  let elapsed = make_elapsed_r()
 
-  let m_i_ = createMemo(() => Math.min(1, elapsed() / duration))
+  let m_i_ = createMemo(() => Math.min(1, elapsed.value / duration))
   let m_i = createMemo(() => easing(m_i_()))
-  let m_value = createMemo(() => a * (1 - m_i()) + b * m_i())
+  let m_value = createMemo(() => a * (1 - m_i()) + read(_b) * m_i())
 
+  let m_reached = createMemo(() => m_i() === 1)
 
   return {
     get i() { return m_i() },
     get value() { return m_value() },
+    set b(v: number) { elapsed.reset(); owrite(_b, v) },
     m_i,
-    m_value
+    m_value,
+    m_reached
   }
-}
-
-function tween(setter: (_: number) => void, a: number, b: number, duration: number, easing: Ease = Ease.quad_in_out) {
-
-  let [{update}] = useApp()
-
-  let elapsed = createSignal(0)
-
-  createEffect(on(update, ([dt, dt0]) => owrite(elapsed, _ => _ += dt)))
-
-  let m_i_ = createMemo(() => Math.min(1, read(elapsed) / duration))
-  let m_i = createMemo(() => easing(m_i_()))
-
-  let m_value = createMemo(() => a * (1 - m_i()) + b * m_i())
-
-  createEffect(() => {
-    setter(m_value())
-  })
 }
 
 export const TransitionGroup = props => {

@@ -9,7 +9,15 @@ import GGame from './ggame.ts'
 const Game = (props) => {
   return (<>
    <Background/> 
-   
+ 
+
+    <HasPosition x={10} y={40}>
+      <HasPosition x={1} y={1} scale={2}>
+        <Letters letters={props.game.status.m_status()}/>
+      </HasPosition>
+    </HasPosition>
+
+  
    <Player player={props.game.player}/>
    <Cursor cursor={props.game.cursor}/>
    
@@ -19,10 +27,20 @@ const Game = (props) => {
       </HasPosition>    
     }</For>
 
-    <Rectangle color={red} w={30} h={9}/>
-    <HasPosition x={1} y={1}>
-      <Letters letters={props.game.level.m_level()}/>
+    <HasPosition x={2} y={2}>
+      <Rectangle color={red} w={30} h={9}/>
+      <HasPosition x={1} y={1}>
+        <Letters letters={props.game.level.m_level()}/>
+      </HasPosition>
     </HasPosition>
+
+    <HasPosition x={200} y={2}>
+      <Rectangle color={red} w={30} h={9}/>
+      <HasPosition x={1} y={1}>
+        <Letters letters={props.game.health.m_health()}/>
+      </HasPosition>
+    </HasPosition>
+
 
     <For each={props.game.player.waypoints}>{ waypoint =>
       <HasPosition x={waypoint.pos.x} y={waypoint.pos.y}>
@@ -78,7 +96,7 @@ const Rectangle = (props) => {
 
 
 const HasPosition = props => {
-  return (<transform tint={props.tint} x={props.x} y={props.y}>
+  return (<transform tint={props.tint} x={props.x} y={props.y} scale={Vec2.make(props.scale || 1, props.scale || 1)}>
       {props.children}
       </transform>)
 }

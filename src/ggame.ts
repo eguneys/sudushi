@@ -48,6 +48,11 @@ export default class GGame {
     this._projectiles = make_array([], _ => make_projectile(() => this._projectiles.remove(_), player.pos.point, _))
 
     this.level = make_level(this, 0)
+    this.health = make_health(this, 8)
+
+    this.status = make_status(this)
+
+    this.status.status = 'click around to move'
 
     let { player, cursor } = this
 
@@ -95,64 +100,16 @@ export default class GGame {
     setInterval(() => {
       this.level.reset()
     }, 5000)
+
+    setInterval(() => {
+      this.health.down()
+    }, 600)
+    setInterval(()  => {
+      this.health.max()
+    }, 5000)
   }
 
 }
-
-const max_level = 10
-function format_level(level: number) {
-  let filled = [...Array(level).keys()].map(_ => '!').join('')
-  let unfilled = [...Array(max_level - level).keys()].map(_ => '.').join('')
-
-  return unfilled + filled
-}
-
-function make_array<A, B>(arr: Array<A>, map: (_: A) => B) {
-  let _arr = createSignal(arr, { equals: false })
-
-  let _ = createMemo(mapArray(_arr[0], map))
-
-  return {
-    get values() { return _() },
-    get head() { return _()[0] },
-    push(a: A) {
-      write(_arr, _ => _.push(a))
-    },
-    enqueue(a: A) {
-      write(_arr, _ => _.unshift(a))
-    },
-    dequeue() {
-      let res
-      write(_arr, _ => res = _.shift())
-      return res
-    },
-    remove(a: A) {
-      write(_arr, _ => _.splice(_.indexOf(a), 1))
-    },
-    clear() {
-      owrite(_arr, [])
-    }
-  }
-}
-
-function make_level(game: GGame, level: number) {
-  let _level = createSignal(level)
-
-  let m_level = make_letters(createMemo(() =>
-                           'level ' + format_level(read(_level))))
-
-  return {
-    get level_digit() { return read(_level) },
-    up() {
-      owrite(_level, _ => Math.min(max_level, _+1))
-    },
-    reset() {
-      owrite(_level, 0)
-    },
-    m_level
-  }
-}
-
 
 function make_enemy(dispose: OnHandler, game: GGame, point: Point) {
 
@@ -405,10 +362,6 @@ function make_rigid(x, mass, air_friction) {
   }
 }
 
-function make_letters(accessor: string) {
-  return createMemo(mapArray(() => format_letters(accessor()), make_letter))
-}
-
 function make_letter(frame: number) {
   let m_tint = make_flip(ticks.thirds, 0xbc3e5b, 0xffffff)
 
@@ -491,6 +444,144 @@ function tween(setter: (_: number) => void, a: number, b: number, duration: numb
   createEffect(() => {
     setter(m_value())
   })
+}
+
+export const TransitionGroup = props => {
+  const resolved = children(() => props.children)
+
+  const [combined, setCombined] = createSignal<Transform[]>()
+
+  let p: Transform[] = []
+  let first = true
+  createComputed(() => {
+    const c = resolved() as Transform[]
+    const comb = [...c]
+    const next = new Set(c)
+    const prev = new Set(p)
+
+    for (let i = 0; i < c.length; i++) {
+      const el = c[i]
+      if (!first && !prev.has(el)) {
+      }
+    }
+
+    for (let i =0; i < p.length; i++) {
+      const old = p[i]
+      if (!next.has(old) && old._parent) {
+        comb.splice(i, 0, old)
+
+        on_exit(old, () => endTransition())
+
+        function endTransition() {
+          p = p.filter(i => i !== old)
+          setCombined(p)
+        }
+      }
+    }
+    p = comb
+    setCombined(comb)
+  })
+}
+
+
+
+const max_level = 10
+function format_level(level: number) {
+  let filled = [...Array(level).keys()].map(_ => '!').join('')
+  let unfilled = [...Array(max_level - level).keys()].map(_ => '.').join('')
+
+  return unfilled + filled
+}
+
+function make_array<A, B>(arr: Array<A>, map: (_: A) => B) {
+  let _arr = createSignal(arr, { equals: false })
+
+  let _ = createMemo(mapArray(_arr[0], map))
+
+  return {
+    get values() { return _() },
+    get head() { return _()[0] },
+    push(a: A) {
+      write(_arr, _ => _.push(a))
+    },
+    enqueue(a: A) {
+      write(_arr, _ => _.unshift(a))
+    },
+    dequeue() {
+      let res
+      write(_arr, _ => res = _.shift())
+      return res
+    },
+    remove(a: A) {
+      write(_arr, _ => _.splice(_.indexOf(a), 1))
+    },
+    clear() {
+      owrite(_arr, [])
+    }
+  }
+}
+
+function make_status(game: GGame) {
+  let _status = createSignal('')
+
+  let m_letters = createMemo(() => read(_status))
+
+
+  let m_status = createMemo(mapArray(() => format_letters(m_letters()), make_letter))
+
+
+  return {
+    m_status,
+    set status(str: string) {
+      owrite(_status, str)
+    }
+  }
+}
+
+const max_health = 10 
+function make_health(game: GGame, health: number) {
+  let _health = createSignal(health)
+
+  let m_letters = createMemo(() =>
+                             'health ' +
+                               format_level(read(_health)))
+
+  let m_health = createMemo(mapArray(() => format_letters(m_letters()), make_letter))
+
+
+  return {
+    m_health,
+    down() {
+      owrite(_health, _ => Math.max(0, _-1))
+    },
+    max() {
+      owrite(_health, max_health)
+    },
+    quarter() {
+      owrite(_health, _ => Math.min(max_health, _ + max_health / 4))
+    },
+  }
+}
+
+function make_level(game: GGame, level: number) {
+  let _level = createSignal(level)
+
+  let m_letters = createMemo(() =>
+                             'level ' +
+                               format_level(read(_level)))
+
+  let m_level = createMemo(mapArray(() => format_letters(m_letters()), make_letter))
+
+  return {
+    get level_digit() { return read(_level) },
+    up() {
+      owrite(_level, _ => Math.min(max_level, _+1))
+    },
+    reset() {
+      owrite(_level, 0)
+    },
+    m_level
+  }
 }
 
 

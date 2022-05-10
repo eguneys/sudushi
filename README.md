@@ -1,3 +1,7 @@
+###
+
+  Try live at https://eguneys.github.io/sudushi
+
 ### NOTES
 
 - [ ] Click sets up a waypoint for hero to follow. Latest click takes priority. 

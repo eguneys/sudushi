@@ -1,10 +1,12 @@
 import { ticks, sand, red, blue, dark } from './shared'
 import { AppProvider, useApp } from './app'
 import { Quad, Vec2 } from 'soli2d-js/web'
-import { onCleanup, onMount, Show, For, on, createEffect, createContext, useContext, createSignal } from 'soli2d-js'
+import { createMemo, onCleanup, onMount, Show, For, on, createEffect, createContext, useContext, createSignal } from 'soli2d-js'
 
 import { read, owrite, write } from './play'
 import GGame from './ggame.ts'
+import { make_loop } from './ggame.ts'
+import { angle_diff } from './util'
 
 const Game = (props) => {
   return (<>
@@ -23,7 +25,7 @@ const Game = (props) => {
    
     <For each={props.game.enemies}>{ enemy =>
       <HasPosition x={enemy.pos.x} y={enemy.pos.y}>
-        <Rectangle lum={1} color={enemy.tint} w={8} h={8}/>
+        <Egg egg={enemy}/>
       </HasPosition>    
     }</For>
 
@@ -48,13 +50,48 @@ const Game = (props) => {
       </HasPosition>    
     }</For>
 
+    <For each={[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]}>{ a =>
+      <HasPosition x={a * 60 + 100} y={160}>
+        <Projectile angle={a * Math.PI}/>
+      </HasPosition>
+    }</For>
+
     <For each={props.game.projectiles}>{ projectile =>
       <HasPosition x={projectile.pos.x} y={projectile.pos.y}>
-        <Rectangle lum={2} color={sand} w={2} h={2}/>
+        <Projectile angle={projectile.angle + Math.PI / 2}/>
       </HasPosition>    
     }</For>
    </>)
 }
+
+const Egg = props => {
+
+  let i_frame = Math.random() * 3
+
+    return (<AnimLoop duration={ticks.half} i_frame={i_frame} frame={3} qs={[80, 48, 16, 16]}/>)
+}
+
+const Projectile = props => {
+  let normal_angle = createMemo(() => (props.angle + Math.PI * 2) % (Math.PI * 2))
+  let quadrant = createMemo(() => Math.round(normal_angle() / (Math.PI * 2 / 8)))
+  let tilted = createMemo(() => quadrant() % 2 === 1)
+
+  let rotation = createMemo(() => Math.floor(quadrant() / 2))
+
+  let rotation_angle = createMemo(() => rotation() * Math.PI / 2)
+
+  let tilted_angle = createMemo(() => (tilted() ? Math.PI / 4 : 0) + rotation_angle())
+
+  let res_angle = createMemo(() => rotation_angle() - angle_diff(normal_angle(), tilted_angle()))
+
+  let i_frame = Math.random() * 3
+
+  return (<HasPosition rotation={res_angle()} pivot={Vec2.make(4, 4)}>
+      <AnimLoop duration={ticks.sixth} i_frame={i_frame} frame={3} qs={[0 + (tilted() ? 8: 0) * 3, 32, 8, 8]}/>)
+  </HasPosition>)
+}
+
+
 const Waypoint = props => {
   return (<HasPosition x={props.waypoint.pos.x} y={props.waypoint.pos.y}>
       <Rectangle lum={0} w={2} h={2}/> 
@@ -69,9 +106,15 @@ const Cursor = props => {
 }
 
 const Player = (props) => {
-  return (<HasPosition x={props.player.pos.x} y={props.player.pos.y}>
-      <Rectangle color={blue} w={10} h={10}/>
-    </HasPosition>)
+
+  return (<Show when={props.player.hit_frame}
+fallback={
+      <HasPositionAngled pivot={Vec2.make(15.5, 15.5)} angle={props.player.angle + Math.PI / 2} x={props.player.pos.x} y={props.player.pos.y} frame={props.player.frame} frames={7} qs={[0, 111, 31, 31]}/>
+}>{ value => 
+    
+<HasPositionAngled pivot={Vec2.make(15.5, 15.5)} angle={props.player.angle + Math.PI / 2} x={props.player.pos.x} y={props.player.pos.y} frame={value} frames={3} qs={[0, 80, 31, 31]}/>
+}</Show>)
+    
 }
 
 const Background = () => {
@@ -94,13 +137,43 @@ const Rectangle = (props) => {
   return (<Anim qs={[0 + (props.lum ?? 2) * 2, 0 + (props.color ?? 0) * 2, 1, 1]} size={Vec2.make(props.w, props.h)} x={props.x} y={props.y}/>)
 }
 
+const HasPositionAngled = props => {
 
+  let normal_angle = createMemo(() => (props.angle + Math.PI * 2) % (Math.PI * 2))
+  let quadrant = createMemo(() => Math.round(normal_angle() / (Math.PI / 2) / 0.5))
+  let tilted = createMemo(() => quadrant() % 2 === 1)
+
+  let rotation = createMemo(() => Math.floor(quadrant() / 2))
+
+  let rotation_angle = createMemo(() => rotation() * Math.PI / 2)
+
+  let tilted_angle = createMemo(() => (tilted() ? Math.PI / 4 : 0) + rotation_angle())
+
+  let res_angle = createMemo(() => rotation_angle() - angle_diff(normal_angle(), tilted_angle()))
+
+  return (<HasPosition scale={props.scale} pivot={props.pivot} rotation={res_angle()} x={props.x} y={props.y} tint={props.tint}> 
+      <AnimFrame frame={props.frame} qs={[props.qs[0] + (tilted()? props.qs[2]:0) * props.frames, props.qs[1], props.qs[2], props.qs[3]]}/>
+      </HasPosition>)
+}
+
+  
 const HasPosition = props => {
-  return (<transform tint={props.tint} x={props.x} y={props.y} scale={Vec2.make(props.scale || 1, props.scale || 1)}>
+  return (<transform pivot={props.pivot} rotation={props.rotation} tint={props.tint} x={props.x} y={props.y} scale={Vec2.make(props.scale || 1, props.scale || 1)}>
       {props.children}
       </transform>)
 }
 
+export const AnimLoop = (props) => {
+  const _frame = make_loop(0, props.frame - 0.0001, props.duration)
+
+  const m_frame = createMemo(() => Math.floor(_frame.value + (props.i_frame??0)) % props.frame)
+
+  return (<Anim qs={[props.qs[0] + m_frame() * props.qs[2], props.qs[1], props.qs[2], props.qs[3]]}/>)
+}
+
+export const AnimFrame = (props) => {
+  return (<Anim qs={[props.qs[0] + props.frame * props.qs[2], props.qs[1], props.qs[2], props.qs[3]]}/>)
+}
 
 export const Anim = (props) => {
 

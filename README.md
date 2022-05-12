@@ -10,6 +10,15 @@
 - [ ] Types of guns, enemies, powerups, heros
 - [ ] We can tweak the way entities move, avoidance, attraction, speed, it's about giving a specific amount of force for a specific direction for a specific amount of time and repeat after a delay.
 
+### IDEAS
+
+- [ ] Deal with close range enemies
+- [ ] Fuzzy fast moving enemy
+- [ ] Homing gun to shoot fuzzy enemy
+- [ ] Deal with large groups of enemies with a Lightning strike or smaller groups with a bomb
+- [ ] Auto shoot with a specific gun based on enemy situation
+- [ ] Visuals to cover the affected area
+
 ### TODO
 
 - [ ] Camera to expand the world area

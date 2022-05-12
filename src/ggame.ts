@@ -3,6 +3,7 @@ import { batch, onCleanup, untrack, mapArray, createMemo, createSignal, createEf
 import { Vec2 } from 'soli2d-js/web'
 import { read, write, owrite } from './play'
 import { useApp } from './app'
+import { appra, angle_diff } from './util'
 
 const id_gen = (() => { let id = 0; return () => ++id })()
 
@@ -43,7 +44,7 @@ export default class GGame {
 
     this.cursor = make_cursor()
     this.player = make_player(this)
-    this._enemies = make_array([], _ => make_enemy((_) => this._enemies.remove(_), this, _))
+    this._enemies = make_array([], _ => enemy_fuzzy(this, make_enemy(() => this._enemies.remove(_), this, _)))
 
     this._projectiles = make_array([],
                                    _ => 
@@ -63,18 +64,19 @@ export default class GGame {
       this._projectiles.push(dir)
     }
 
-    createMemo(() => {
+    createEffect(() => {
       this.projectiles.map(proj => {
         this.enemies.forEach(enemy => {
 
           if (pos_hit(enemy.pos.m_vs(), proj.pos.m_vs())) {
-            proj.hit(enemy)
             enemy.take_hit(proj)
+            proj.hit(enemy)
           }
         })
       })
     })
 
+    /*
   let r = 0
     setInterval(() => {
       for (let i = 0; i < 10; i++) {
@@ -85,10 +87,12 @@ export default class GGame {
         fire(point(res.x, res.y))
       }
     }, 100)
+   */
 
+    this._enemies.push(point(Math.random() * 320, Math.random() * 180))
     setInterval(() => {
       this._enemies.push(point(Math.random() * 320, Math.random() * 180))
-    }, 940)
+    }, 9040)
 
     setInterval(() => {
       this.level.up()
@@ -97,9 +101,6 @@ export default class GGame {
       this.level.reset()
     }, 5000)
 
-    setInterval(() => {
-      this.health.down()
-    }, 600)
     setInterval(()  => {
       this.health.max()
     }, 5000)
@@ -107,16 +108,57 @@ export default class GGame {
 
 }
 
-function make_enemy(dispose: OnHandler, game: GGame, point: Point) {
+function enemy_fuzzy(game: GGame, enemy: Enemy) {
 
-  let [{update}] = useApp()
-  let pos = make_position(...point_xy(point))
+  let { rx, ry, m_p_dist } = enemy
 
-  let rx = make_rigid(point_xy(point)[0], 1000, 0.92),
-    ry = make_rigid(point_xy(point)[1], 1000, 0.92)
+  let target = make_position(100, 100)
 
-  let m_dir = createMemo(() => game.player.pos.m_vs().sub(pos.m_vs()).normalize)
+  let m_target_dir = createMemo(() => target.m_vs().sub(enemy.pos.m_vs()))
 
+  let m_dir = createMemo(() => m_target_dir().add_angle(Math.sign(1 - Math.random() * 2) * Math.PI * 0.5))
+
+  createEffect(on(make_interval(ticks.seconds), () => {
+
+    createEffect(on(make_run(ticks.half), () => {
+      rx.force += m_dir().x
+      ry.force += m_dir().y
+    }))
+  }))
+ 
+  return enemy
+}
+
+function enemy_egg(game: GGame, enemy: Enemy) {
+
+  let { rx, ry, m_dir, m_p_dist } = enemy
+
+  const take_hit = (dir) => {
+    rx.force = dir.x * 4
+    ry.force = dir.y * 4
+  }
+
+  createEffect(on(make_interval(ticks.one * 2), () => {
+    rx.force = rx.force * 0.01
+    ry.force = ry.force * 0.01
+  }))
+
+  createEffect(() => {
+    let p_dist = m_p_dist()
+
+    if (p_dist < 18) {
+      game.player.hit_fuzzy(take_hit)
+    } else if (p_dist < 36) {
+    } else {
+
+    }
+  })
+
+  return enemy
+}
+
+function crawl(enemy: Enemy) {
+  let { rx, ry, m_dir } = enemy
   createEffect(on(make_interval(ticks.seconds), () => {
     createEffect(on(make_run(ticks.sixth), (_) => {
       if (_ === -1) {
@@ -132,6 +174,18 @@ function make_enemy(dispose: OnHandler, game: GGame, point: Point) {
       }
     }))
   }))
+  return enemy
+}
+
+function make_enemy(dispose: OnHandler, game: GGame, point: Point) {
+
+  let [{update}] = useApp()
+  let pos = make_position(...point_xy(point))
+
+  let rx = make_rigid(point_xy(point)[0], 1000, 0.92),
+    ry = make_rigid(point_xy(point)[1], 1000, 0.92)
+
+  let m_dir = createMemo(() => game.player.pos.m_vs().sub(pos.m_vs()).normalize)
 
   createEffect(on(update, () => {
     pos.x = rx.x
@@ -141,12 +195,19 @@ function make_enemy(dispose: OnHandler, game: GGame, point: Point) {
 
   let m_tint = make_flip(ticks.half, red, dark)
 
+
+  let m_p_dist = createMemo(() => game.player.pos.m_vs().distance(pos.m_vs()))
+
   return {
     pos,
     get tint() { return m_tint() },
     take_hit() {
       dispose()
-    }
+    },
+    rx,
+    ry,
+    m_dir,
+    m_p_dist
   }
 }
 
@@ -237,11 +298,25 @@ function make_projectile(dispose: OnHandler, point: Point, _dir: Point) {
 function make_counter_loop(n: number) {
   let _ = createSignal(0)
 
+  let _c = createSignal(0)
+
   return {
     get value() { return read(_) },
     increment() {
-      owrite(_, _ => (_ + 1) % n)
-    }
+      owrite(_, _ => {
+        _ = (_ + 1)
+        if (_ >= n) {
+          _ = 0
+          owrite(_c, _ => _ + 1)
+        }
+        return _
+      })
+    },
+    reset() {
+      owrite(_c, 0)
+      owrite(_, 0)
+    },
+    get c() { return read(_c) }
   }
 }
 
@@ -253,7 +328,6 @@ function make_player(game: GGame) {
   let friction = 0.91
   let rx = make_rigid(100, 1000, friction),
     ry = make_rigid(100, 1000, friction)
-
 
   let c_frame = make_counter_loop(7)
 
@@ -269,12 +343,28 @@ function make_player(game: GGame) {
     }
   })
 
-  let m_dir = createMemo(() => target.m_vs().sub(pos.m_vs()).normalize)
+  let m_target_dir = createMemo(() => target.m_vs().sub(pos.m_vs()).normalize)
+  let m_target_angle = createMemo(() => m_target_dir().angle)
+
+  let _dir = createSignal(Vec2.zero)
+
+  let m_dir = createMemo(() => read(_dir))
+  let m_dir_angle = createMemo(() => read(_dir).angle)
 
   let m_distance = createMemo(() => pos.m_vs().distance(target.m_vs()))
   let m_reached = createMemo(() => m_distance() < 8)
 
-  let m_front = createMemo(() => pos.m_vs().add(m_dir().scale(10)))
+  let m_front = createMemo(() => pos.m_vs().add(read(_dir).scale(10)))
+
+  let m_dampen_walk
+
+  let [{update}] = useApp()
+  createEffect(on(update, ([dt, dt0]) => {
+    let da = m_dir_angle(),
+      ta = m_target_angle()
+    let a = appra(da, ta, angle_diff(da, ta) * 0.1)
+    owrite(_dir, Vec2.from_angle(a))
+  }))
 
   createEffect(on(m_reached, (v) => {
     createEffect(on(make_interval(ticks.five * 1.5), () => {
@@ -284,8 +374,8 @@ function make_player(game: GGame) {
         ry.force = 0
         c_frame.increment()
       } else {
-        rx.force = m_dir().x * 0.5 * 2
-        ry.force = m_dir().y * 0.5 * 2
+        rx.force = read(_dir).x * 0.5 * 2 * (m_dampen_walk?.() ?? 1)
+        ry.force = read(_dir).y * 0.5 * 2 * (m_dampen_walk?.() ?? 1)
       }
     }))
     }))
@@ -310,17 +400,64 @@ function make_player(game: GGame) {
     waypoints.clear()
   }))
 
+
+  let _hit_or = createSignal()
+  let m_hit_or = createMemo(() => read(_hit_or))
+  
+
+  let l_hit_frame = make_counter_loop(3)
+
+  createEffect(on(m_hit_or, hit_or => {
+    if (hit_or) {
+      l_hit_frame.reset()
+      createEffect(on(make_interval(ticks.lengths), () => {
+        l_hit_frame.increment()
+      }))
+    }
+  }))
+
+  createEffect(() => {
+    if (l_hit_frame.c > 2) {
+      owrite(_hit_or, undefined)
+    }
+  })
+
+  let m_flip_hit_frame = createMemo(() => {
+    if (m_hit_or()) {
+      return l_hit_frame.value
+    } else {
+      return undefined
+    }
+  })
+
+  m_dampen_walk = createMemo(() => {
+    if (m_flip_hit_frame() === undefined) {
+      return 1
+    } else {
+      return 0
+    }
+  })
+
+
+  const hit_fuzzy = (f_take_hit) => {
+    owrite(_hit_or, true)
+
+    f_take_hit(m_dir())
+  }
+
   return {
+    get hit_frame() { return m_flip_hit_frame() },
     get front() { return m_front() },
     get frame() { return c_frame.value },
-    get direction() { return m_dir() },
-    get angle() { return m_dir().angle },
+    get direction() { return read(_dir) },
+    get angle() { return m_dir_angle() },
     get projectiles() { return guns.values },
+    get waypoints() { return waypoints.values },
     m_distance,
     m_reached,
     pos,
     target,
-    get waypoints() { return waypoints.values }
+    hit_fuzzy
   }
 }
 
@@ -375,6 +512,7 @@ function make_rigid(x, mass, air_friction) {
   return {
     get x() { return _x() },
     get vx() { return m_v_x() },
+    get force() { return read(_force) },
     set force(v: number) { owrite(_force, v) },
     get debug() { return [read(_force), m_v0_x()] }
   }
@@ -447,8 +585,17 @@ export function make_run(t: number) {
                        0)
 }
 
-export function make_flip<A>(t: number, a: A = true, b: A = false) {
-  return createMemo(on(make_elapsed(), e => e <= t ? a : b))
+export function make_flip<A>(t: number, _a: Accessor<A> = () => true, _b: Accessor<A> = () => false) {
+
+  let a = typeof _a === 'function' ? _a : () => _a
+  let b = typeof _b === 'function' ? _b : () => _b
+
+  return createMemo(on(make_elapsed(), e => e <= t ? a() : b()))
+}
+
+export function make_condition<A>(c: Accessor<boolean>, _a: Accessor<A> = () => true, _b: Accessor<A> = () => false) {
+
+  return createMemo(on(c, v => v ? _a() : _b()))
 }
 
 type Ease = (t: number) => number
@@ -559,7 +706,9 @@ function make_array<A, B>(arr: Array<A>, map: (_: A) => B) {
       return res
     },
     remove(a: A) {
-      write(_arr, _ => _.splice(_.indexOf(a), 1))
+      write(_arr, _ => {
+        _.splice(_.indexOf(a), 1)
+      })
     },
     clear() {
       owrite(_arr, [])

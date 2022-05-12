@@ -25,7 +25,7 @@ const Game = (props) => {
    
     <For each={props.game.enemies}>{ enemy =>
       <HasPosition x={enemy.pos.x} y={enemy.pos.y}>
-        <Rectangle lum={1} color={enemy.tint} w={8} h={8}/>
+        <Egg egg={enemy}/>
       </HasPosition>    
     }</For>
 
@@ -64,6 +64,13 @@ const Game = (props) => {
    </>)
 }
 
+const Egg = props => {
+
+  let i_frame = Math.random() * 3
+
+    return (<AnimLoop duration={ticks.half} i_frame={i_frame} frame={3} qs={[80, 48, 16, 16]}/>)
+}
+
 const Projectile = props => {
   let normal_angle = createMemo(() => (props.angle + Math.PI * 2) % (Math.PI * 2))
   let quadrant = createMemo(() => Math.round(normal_angle() / (Math.PI * 2 / 8)))
@@ -100,7 +107,13 @@ const Cursor = props => {
 
 const Player = (props) => {
 
-  return (<HasPositionAngled pivot={Vec2.make(15.5, 15.5)} angle={props.player.angle + Math.PI / 2} x={props.player.pos.x} y={props.player.pos.y} frame={props.player.frame} frames={7} qs={[0, 80, 31, 31]}/>)
+  return (<Show when={props.player.hit_frame}
+fallback={
+      <HasPositionAngled pivot={Vec2.make(15.5, 15.5)} angle={props.player.angle + Math.PI / 2} x={props.player.pos.x} y={props.player.pos.y} frame={props.player.frame} frames={7} qs={[0, 111, 31, 31]}/>
+}>{ value => 
+    
+<HasPositionAngled pivot={Vec2.make(15.5, 15.5)} angle={props.player.angle + Math.PI / 2} x={props.player.pos.x} y={props.player.pos.y} frame={value} frames={3} qs={[0, 80, 31, 31]}/>
+}</Show>)
     
 }
 
